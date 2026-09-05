@@ -1,0 +1,92 @@
+import os
+from openai import OpenAI
+
+# Инициализация клиента под корпоративный LiteLLM
+client = OpenAI(
+    api_key=os.environ["LITELLM_API_KEY"],
+    base_url="https://llm.effective.land/v1",
+)
+
+MODEL_NAME = "glm-4.7-flash"  # Ваша рабочая модель
+
+task_prompt = (
+    "Объясни концепцию «Технического долга» (Technical Debt) в программировании "
+    "так, будто ты объясняешь это опытному владельцу бизнеса (Product Owner), "
+    "используя яркую строительную метафору. Ответ структурируй: метафора, риски, пути решения."
+)
+
+temperatures = [0, 0.7, 1.2]
+
+report = "# Эксперимент: Влияние параметра Temperature\n\n"
+report += f"**Тестовый запрос:** `{task_prompt}`\n\n---\n\n"
+
+responses_storage = {}
+
+for temp in temperatures:
+    print(f"Выполняется запрос с temperature = {temp}...")
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "Ты опытный технический директор (CTO), умеющий объяснять сложные вещи простым бизнес-языком."},
+                {"role": "user", "content": task_prompt}
+            ],
+            temperature=temp,
+        )
+        answer_text = response.choices[0].message.content
+        responses_storage[temp] = answer_text
+        
+        report += f"## Температура: {temp}\n\n"
+        report += f"**Ответ модели:**\n{answer_text}\n\n---\n\n"
+    except Exception as e:
+        report += f"## Температура: {temp}\n\nОшибка: {e}\n\n---\n\n"
+
+# Строгий промпт для раздельного анализа по пунктам ТЗ
+print("Генерация детального сравнения...")
+comparison_prompt = f"""
+Проанализируй три ответа языковой модели на один и тот же запрос, полученные при температуре 0, 0.7 и 1.2.
+Дай глубокий аналитический ответ в формате Markdown, строго разделив его на следующие блоки:
+
+1. **Сравнение по точности:**
+   - Как изменилась строгость структуры и логики ответов?
+   - Насколько точно выдержаны требования запроса (метафора, риски, пути решения) при каждой температуре?
+
+2. **Сравнение по креативности:**
+   - Насколько оригинальными и неожиданными получились метафоры и примеры?
+   - Как повышение температуры повлияло на «полет мысли» модели?
+
+3. **Сравнение по разнообразию:**
+   - Как изменился лексический состав, словарный запас и стилистика ответов?
+   - Заметно ли повторение штампов при разных значениях?
+
+4. **Рекомендации по применению:**
+   - Сформулируй четко: для каких именно типов задач (код, аналитика, креатив, копирайтинг) лучше всего подходит каждая настройка (0, 0.7, 1.2).
+
+Вот тексты ответов для анализа:
+---
+Температура 0:
+{responses_storage.get(0, 'Нет данных')}
+
+Температура 0.7:
+{responses_storage.get(0.7, 'Нет данных')}
+
+Температура 1.2:
+{responses_storage.get(1.2, 'Нет данных')}
+"""
+
+try:
+    comp_response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[{"role": "user", "content": comparison_prompt}],
+        temperature=0.3,
+    )
+    report += "## Сравнение результатов и выводы\n\n"
+    report += comp_response.choices[0].message.content + "\n"
+except Exception as e:
+    report += "## Сравнение результатов и выводы\n\nОшибка при генерации сравнения: " + str(e) + "\n"
+
+# Сохраняем итоговый файл
+with open("temperature_comparison.md", "w", encoding="utf-8") as f:
+    f.write(report)
+
+print("Готово! Отчет сохранен в файл temperature_comparison.md")
