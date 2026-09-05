@@ -16,6 +16,7 @@
 
 ```bash
 export LITELLM_API_KEY=<ваш LiteLLM API key>
+```
 
 По умолчанию в коде используется:
 API Base URL: https://llm.effective.land/v1
