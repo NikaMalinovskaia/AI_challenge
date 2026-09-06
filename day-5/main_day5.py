@@ -2,28 +2,29 @@ import time
 import os
 from litellm import completion, completion_cost
 
-# Конфигурация моделей из переменных окружения или значений по умолчанию
+# Настройка параметров из окружения (передаются из run.sh)
 API_BASE = os.getenv("LITELLM_API_BASE", "https://api.litellm.ai")
 API_KEY = os.getenv("LITELLM_API_KEY")
-MODEL_WEAK = os.getenv("MODEL_WEAK", "deepseek/deepseek-chat")
-MODEL_MEDIUM = os.getenv("MODEL_MEDIUM", "deepseek/deepseek-chat")
-MODEL_STRONG = os.getenv("MODEL_STRONG", "deepseek/deepseek-reasoner")
 
+# Четкое распределение моделей по уровням (слабая, средняя, сильная)
 MODELS = {
-    "Слабая модель (Light)": MODEL_WEAK,
-    "Средняя модель (Standard)": MODEL_MEDIUM,
-    "Сильная модель (Reasoning)": MODEL_STRONG
+    "Слабая модель (Light)": os.getenv("MODEL_WEAK", "huggingface/google/gemma-2-2b-it"),
+    "Средняя модель (Standard)": os.getenv("MODEL_MEDIUM", "huggingface/mistralai/Mistral-7B-Instruct-v0.3"),
+    "Сильная модель (Strong)": os.getenv("MODEL_STRONG", "huggingface/meta-llama/Meta-Llama-3-70B-Instruct")
 }
 
 def run_model_comparison(prompt: str):
     results = []
     
+    print(f"🎯 Тестовый промпт для всех моделей:\n> «{prompt}»\n" + "-"*50)
+    
     for tier, model_name in MODELS.items():
-        print(f"🔄 Отправка запроса на [{tier}] ({model_name})...")
+        print(f"🔄 Отправка запроса на [{tier}] -> `{model_name}`...")
         messages = [{"role": "user", "content": prompt}]
         
         start_time = time.perf_counter()
         try:
+            # Один и тот же вызов через LiteLLM для каждой модели
             response = completion(
                 model=model_name,
                 messages=messages,
@@ -34,6 +35,7 @@ def run_model_comparison(prompt: str):
             end_time = time.perf_counter()
             elapsed_time = round(end_time - start_time, 3)
             
+            # Сбор метрик (токены и стоимость)
             usage = response.get("usage", {})
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
@@ -53,10 +55,10 @@ def run_model_comparison(prompt: str):
                 "content": content,
                 "status": "Успешно"
             })
-            print(f"   ✅ Готово за {elapsed_time}с | Токенов: {total_tokens} | Стоимость: ${cost:.6f}")
+            print(f"   ✅ Успешно! Время: {elapsed_time}с | Токенов: {total_tokens} | Стоимость: ${cost:.6f}\n")
             
         except Exception as e:
-            print(f"   ❌ Ошибка: {str(e)}")
+            print(f"   ❌ Ошибка при запросе к {model_name}: {str(e)}\n")
             results.append({
                 "tier": tier,
                 "model": model_name,
@@ -67,10 +69,10 @@ def run_model_comparison(prompt: str):
     return results
 
 def save_reports(prompt: str, results: list):
-    # 1. Технический отчет с метриками
+    # 1. Технический отчет с метриками (day5_metrics_report.md)
     tech_report = f"# 📊 Технический отчет: День 5 (Версии моделей)\n\n"
-    tech_report += f"**Промпт:** `{prompt}`\n\n"
-    tech_report += "| Уровень | Модель | Время (с) | Токены (Вх/Вых/Всего) | Стоимость ($) | Статус |\n"
+    tech_report += f"**Общий промпт:** `{prompt}`\n\n"
+    tech_report += "| Уровень | Модель | Время (с) | Токены (Вх / Вых / Всего) | Стоимость ($) | Статус |\n"
     tech_report += "| :--- | :--- | :--- | :--- | :--- | :--- |\n"
     
     for r in results:
@@ -83,39 +85,39 @@ def save_reports(prompt: str, results: list):
     with open("day5_metrics_report.md", "w", encoding="utf-8") as f:
         f.write(tech_report)
 
-    # 2. Итоговый файл со сравнением (качество, скорость, ресурсоёмкость)
+    # 2. Итоговый файл со сравнением (answer_comparison.md)
     summary = f"# ⚖️ Сравнение моделей: Скорость, Ресурсы, Качество (День 5)\n\n"
-    summary += f"**Задача:** `{prompt}`\n\n"
+    summary += f"**Исходный запрос:** `{prompt}`\n\n"
     
-    summary += "## 🚀 Скорость отклика\n"
+    summary += "## 🚀 1. Скорость\n"
     for r in results:
         if r["status"] == "Успешно":
             summary += f"* **{r['tier']}** (`{r['model']}`): **{r['time']} сек.**\n"
             
-    summary += "\n## 💾 Ресурсоёмкость и стоимость\n"
+    summary += "\n## 💾 2. Ресурсоёмкость и стоимость\n"
     for r in results:
         if r["status"] == "Успешно":
-            summary += f"* **{r['tier']}** — Токены: `{r['total_tokens']}`, Стоимость: **${r['cost']:.6f}**\n"
+            summary += f"* **{r['tier']}** — Токены: `{r['total_tokens']}` (Вх: {r['prompt_tokens']}, Вых: {r['completion_tokens']}), Стоимость: **${r['cost']:.6f}**\n"
             
-    summary += "\n## 🧠 Качество ответов\n"
+    summary += "\n## 🧠 3. Качество ответов\n"
     for r in results:
         if r["status"] == "Успешно":
-            snippet = r['content'][:250].replace('\n', ' ')
-            summary += f"* **{r['tier']}**:\n  > *«{snippet}...»*\n\n"
+            snippet = r['content'][:300].replace('\n', ' ')
+            summary += f"* **{r['tier']}** (`{r['model']}`):\n  > *«{snippet}...»*\n\n"
             
     summary += "## 💡 Итоговый вывод\n"
-    summary += "Слабые модели оптимальны для простых задач из-за высокой скорости и минимальной стоимости. Средние модели обеспечивают сбалансированный результат, а сильные модели незаменимы для сложных логических цепочек, несмотря на большее время ответа и расход ресурсов.\n\n"
+    summary += "Слабые модели (начало списка HF) обеспечивают мгновенный отклик и минимальные затраты, но подходят только для базовых задач. Средние модели (середина HF) держат отличный баланс скорости и качества. Сильные модели (конец/флагманы HF) требуют больше времени и ресурсов, но незаменимы для глубокого анализа.\n\n"
     summary += "### Полезные ссылки\n"
-    summary += "* [Документация LiteLLM](https://docs.litellm.ai/)\n"
     summary += "* [Hugging Face Models Hub](https://huggingface.co/models)\n"
+    summary += "* [Документация LiteLLM](https://docs.litellm.ai/)\n"
 
     with open("answer_comparison.md", "w", encoding="utf-8") as f:
         f.write(summary)
     
-    print("\n📁 Отчеты успешно сохранены: `day5_metrics_report.md` и `answer_comparison.md`")
+    print("📁 Отчеты успешно сохранены: `day5_metrics_report.md` и `answer_comparison.md`")
 
 if __name__ == "__main__":
     test_prompt = "Объясни концепцию квантовых вычислений простыми словами для новичка."
-    print("🚀 Запуск эксперимента Дня 5...\n" + "-"*50)
+    print("🚀 Запуск эксперимента Дня 5...\n" + "="*50)
     res = run_model_comparison(test_prompt)
     save_reports(test_prompt, res)
