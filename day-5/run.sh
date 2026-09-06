@@ -1,18 +1,19 @@
 #!/bin/bash
 
-# Настройка переменных окружения (впишите ваш ключ сюда)
-export LITELLM_API_KEY="your_litellm_api_key_here"
-export LITELLM_API_BASE="https://api.litellm.ai" # или ваш корпоративный прокси
+export LITELLM_API_KEY="ваш-ключ-сюда"
+export LITELLM_API_BASE="https://llm.effective.land/v1"
 
-# Начало, середина и конец Hugging Face Hub (по версии популярных Instruct-моделей)
-export MODEL_WEAK="huggingface/google/gemma-2-2b-it"              # Компактная (слабая)
-export MODEL_MEDIUM="huggingface/mistralai/Mistral-7B-Instruct-v0.3" # Сбалансированная (средняя)
-export MODEL_STRONG="huggingface/meta-llama/Meta-Llama-3-70B-Instruct" # Тяжелый флагман (сильная)
+# Используем только те модели, которые разрешены для вашего ключа
+export MODEL_WEAK="glm-4.7-flash"
+export MODEL_MEDIUM="minimax-m3"
+export MODEL_STRONG="deepseek-v4-pro"
 
-echo "⚙️ Проверка и установка зависимостей..."
-pip3 install litellm openai python-dotenv --quiet
+echo "Запуск скрипта эксперимента (main_day5.py)..."
+python3 main_day5.py
 
-echo "▶️ Запуск скрипта эксперимента (main.py)..."
-python3 main.py
+if [ $? -ne 0 ]; then
+    echo "❌ Ошибка: Эксперимент не удался. Отчеты не были созданы!"
+    exit 1
+fi
 
-echo "✨ Готово! Проверьте файлы answer_comparison.md и day5_metrics_report.md"
+echo "🎉 Готово! Проверьте файлы answer_comparison.md и day5_metrics_report.md"
