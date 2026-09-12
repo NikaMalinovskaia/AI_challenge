@@ -1,34 +1,46 @@
 import os
 from openai import OpenAI
 
-class SimpleLLMAgent:
-    """
-    Простой агент, инкапсулирующий логику взаимодействия с LLM через API.
-    """
-    def __init__(self, model_name: str = "glm-4.7-flash"):
+class LLMAgent:
+    def __init__(self, model_name: str = "glm-5.3-flash", temperature: float = 0.7):
         self.model_name = model_name
-        # Инициализация HTTP-клиента под корпоративный шлюз LiteLLM
+        self.temperature = temperature
+        
+        # Возвращаем фоллбек для ключа, чтобы Streamlit работал без лишних настроек окружения
+        api_key = os.environ.get("LITELLM_API_KEY") or "sk-L2Fx4Xsvy_OA6gcp3gG2pA"
+        
         self.client = OpenAI(
-            api_key=os.environ.get("LITELLM_API_KEY"),
+            api_key=api_key,
             base_url="https://llm.effective.land/v1",
         )
-        self.system_prompt = (
-            "Ты — полезный и вежливый AI-ассистент. Отвечай четко, грамотно и по существу."
-        )
+        
+        # Агент снова хранит свою память внутри себя
+        self.messages = [
+            {"role": "system", "content": "Ты — умный и лаконичный AI-ассистент."}
+        ]
 
-    def run(self, user_query: str) -> str:
-        """
-        Принимает запрос пользователя, отправляет его в LLM и возвращает ответ.
-        """
+    def chat(self, user_message: str) -> str:
+        """Принимает запрос пользователя, сохраняет контекст и возвращает ответ."""
+        self.messages.append({"role": "user", "content": user_message})
+        
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_query}
-                ],
-                temperature=0.7,
+                messages=self.messages,
+                temperature=self.temperature,
             )
-            return response.choices[0].message.content
+            answer = response.choices[0].message.content
+            self.messages.append({"role": "assistant", "content": answer})
+            return answer
+            
         except Exception as e:
-            return f"Ошибка при обращении к агенту: {str(e)}"
+            # Если произошла ошибка (например, сеть отпала), удаляем последнее 
+            # сообщение пользователя, чтобы не ломать контекст
+            self.messages.pop()
+            raise Exception(f"Ошибка API: {e}")
+            
+    def reset_memory(self):
+        """Сбрасывает контекст диалога до начального состояния."""
+        self.messages = [
+            {"role": "system", "content": "Ты — умный и лаконичный AI-ассистент."}
+        ]
