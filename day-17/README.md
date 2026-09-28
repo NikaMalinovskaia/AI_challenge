@@ -33,8 +33,8 @@
    ```
 
 ## 💡 Примеры запросов к агенту
-- Анализ кода:
-Проверь код: def process_data(items): return [i * 2 for i in items]
+1) Анализ кода:
+- Проверь код: def process_data(items): return [i * 2 for i in items]
 
-- Проверка статуса фичи:
-Проверь статус фичи payment
+2) Проверка статуса фичи:
+- Проверь статус фичи payment
