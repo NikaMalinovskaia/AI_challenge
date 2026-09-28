@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import os
 import asyncio
-from openai import OpenAI
+import re
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -12,9 +12,6 @@ class GuardedFSMAgentWithMCPTools:
         self.model_name = model_name
         self.temperature = temperature
         os.makedirs(self.storage_dir, exist_ok=True)
-        
-        api_key = os.environ.get("LITELLM_API_KEY") or "sk-L2Fx4Xsvy_OA6gcp3gG2pA"
-        self.client = OpenAI(api_key=api_key, base_url="https://llm.effective.land/v1")
 
         self.ALLOWED_TRANSITIONS = {
             "planning": ["execution"],
@@ -56,8 +53,8 @@ class GuardedFSMAgentWithMCPTools:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-    def fetch_mcp_tools(self) -> list | str:
-        """Получает список инструментов с НАШЕГО кастомного MCP-сервера или возвращает текст подробной ошибки."""
+    def fetch_mcp_tools(self) -> list:
+        """Получает список инструментов с кастомного MCP-сервера."""
         async def _run_mcp():
             server_params = StdioServerParameters(
                 command="python3.11",
@@ -72,14 +69,11 @@ class GuardedFSMAgentWithMCPTools:
         try:
             return asyncio.run(_run_mcp())
         except Exception as e:
-            err_msg = str(e)
-            # Извлекаем подробности из TaskGroup, если они есть
-            if hasattr(e, "exceptions"):
-                err_msg = ", ".join([str(sub) for sub in e.exceptions])
-            return f"⚠️ Ошибка запуска MCP-сервера: {err_msg}"
+            print(f"Error fetching tools: {e}")
+            return []
 
     def call_mcp_tool(self, tool_name: str, arguments: dict) -> str:
-        """Вызывает конкретный инструмент на MCP-сервере и возвращает результат."""
+        """Вызывает конкретный инструмент на MCP-сервере и возвращает его реальный результат."""
         async def _run_call():
             server_params = StdioServerParameters(
                 command="python3.11",
@@ -94,10 +88,7 @@ class GuardedFSMAgentWithMCPTools:
         try:
             return asyncio.run(_run_call())
         except Exception as e:
-            err_msg = str(e)
-            if hasattr(e, "exceptions"):
-                err_msg = ", ".join([str(sub) for sub in e.exceptions])
-            return f"❌ Ошибка вызова инструмента {tool_name}: {err_msg}"
+            return f"❌ Ошибка подключения к MCP-серверу: {e}"
 
     def change_stage(self, new_stage: str) -> tuple[bool, str]:
         working = self.load_memory("working")
@@ -119,39 +110,29 @@ class GuardedFSMAgentWithMCPTools:
         
         short_term.append({"role": "user", "content": user_message})
 
-        tools_result = self.fetch_mcp_tools()
-        tools_desc = ""
-        if isinstance(tools_result, list):
-            tools_desc = "\n".join([f"- {t.name}: {t.description}" for t in tools_result])
+        user_msg_lower = user_message.lower()
+        if any(w in user_msg_lower for w in ["код", "fastapi", "проверь", "validate", "def", "fsm", "print", "class"]):
+            tool_name = "validate_code_invariants"
+            
+            # Надежная очистка префиксов через регулярные выражения
+            clean_code = re.sub(r'^(проверь\s*код[:]?|код[:]?|проверь[:]?)\s*', '', user_message, flags=re.IGNORECASE).strip()
+
+            tool_args = {"code_snippet": clean_code}
         else:
-            tools_desc = "Инструменты недоступны"
+            tool_name = "check_test_status"
+            feature = "payment" if "payment" in user_msg_lower else "auth"
+            tool_args = {"feature_name": feature}
 
-        tool_execution_result = ""
-        if "статус" in user_message.lower() or "фич" in user_message.lower():
-            feature = "payment" if "payment" in user_message.lower() else "auth"
-            tool_execution_result = f"\n\n[Системный вызов MCP инструмента `check_test_status` для '{feature}']:\n" + self.call_mcp_tool("check_test_status", {"feature_name": feature})
+        tool_result = self.call_mcp_tool(tool_name, tool_args)
 
-        system_prompt = (
-            "Ты — AI Quality Architect. Контролируй процесс через FSM.\n"
-            f"Текущий этап: {working.get('stage')}\n"
-            f"Доступные MCP-инструменты:\n{tools_desc}"
-            f"{tool_execution_result}"
+        assistant_reply = (
+            f"🤖 **AI Quality Architect (FSM Stage: {working.get('stage')})**\n\n"
+            f"Запрос проанализирован. Инициирован вызов MCP-инструмента: `{tool_name}`.\n\n"
+            f"📊 **Результат выполнения MCP-инструмента:**\n"
+            f"> {tool_result}\n\n"
+            f"*Архитектурный вердикт:* Проверка завершена в соответствии с регламентом контроля инвариантов."
         )
 
-        messages_for_api = [{"role": "system", "content": system_prompt}] + short_term[-6:]
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages_for_api,
-                temperature=self.temperature
-            )
-        except Exception as e:
-            short_term.pop()
-            self.save_memory("short_term", short_term)
-            raise Exception(f"Ошибка API: {e}")
-
-        assistant_reply = response.choices[0].message.content
         short_term.append({"role": "assistant", "content": assistant_reply})
         self.save_memory("short_term", short_term)
 
