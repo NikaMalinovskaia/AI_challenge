@@ -1,19 +1,11 @@
-import os
 import requests
 import time
-from openai import OpenAI
 
 class LocalRAGAgent:
     def __init__(self, model_name: str = "qwen2.5", temperature: float = 0.2, max_tokens: int = 500):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.local_model = model_name
-        
-        # Облачный клиент для сравнения (из Дня 28)
-        api_key = os.environ.get("LITELLM_API_KEY") or "sk-L2Fx4Xsvy_OA6gcp3gG2pA"
-        self.cloud_client = OpenAI(api_key=api_key, base_url="https://llm.effective.land/v1")
-        self.cloud_model = "glm-5.3-flash"
-        
         self.ollama_url = "http://localhost:11434/api/generate"
         
         # База знаний
@@ -35,10 +27,7 @@ class LocalRAGAgent:
             }
         ]
         
-        self.histories = {
-            "local": [{"role": "system", "content": "Ты — строгий эксперт по C# ООП."}],
-            "cloud": [{"role": "system", "content": "Ты — строгий эксперт по C# ООП."}]
-        }
+        self.reset_memory()
 
     def local_retrieval(self, query: str) -> list:
         query_lower = query.lower()
@@ -50,74 +39,76 @@ class LocalRAGAgent:
         top_docs = [doc for score, doc in scored_docs if score > 0]
         return top_docs if top_docs else [self.knowledge_base[0]]
 
-    def chat_single(self, user_message: str, mode: str, prompt_template_type: str = "Стандартный") -> tuple:
+    def chat_single(self, user_message: str, prompt_template_type: str = "Стандартный", custom_temp: float = None, custom_max_tokens: int = None) -> tuple:
         start_time = time.time()
+        
+        temp = custom_temp if custom_temp is not None else self.temperature
+        tokens = custom_max_tokens if custom_max_tokens is not None else self.max_tokens
         
         retrieved_docs = self.local_retrieval(user_message)
         context_text = "\n\n".join([f"Источник [{d['id']}]: {d['content']}" for d in retrieved_docs])
         
-        # Оптимизированные шаблоны промптов под конкретную задачу
+        # Четкое разделение поведения и тона для каждой роли
         if prompt_template_type == "Строгий код-ревьюер":
-            rag_prompt = (
-                f"[Контекст базы знаний]\n{context_text}\n\n"
-                f"[Вопрос/Код студента]: {user_message}\n\n"
-                "Инструкция: Проведи краткий аудит, укажи на нарушения принципов ООП в C# (инкапсуляция, модификаторы доступа) "
-                "и дай исправленный пример кода. Будь лаконичен."
+            system_instructions = (
+                "Роль: Ты — беспощадный техлид и строгий код-ревьюер. "
+                "Пиши предельно коротко, без вводных слов и приветствий. Выписывай ошибки строго по пунктам и давай исправленный код.\n"
+                "ОТВЕЧАЙ СТРОГО НА РУССКОМ ЯЗЫКЕ. ЗАПРЕЩЕНО ИСПОЛЬЗОВАТЬ ИЕРОГЛИФЫ.\n\n"
+            )
+            user_prompt = (
+                f"Контекст: {context_text}\n\n"
+                f"Код на ревью:\n{user_message}\n\n"
+                "Сделай жесткий разбор нарушений ООП в этом коде."
             )
         elif prompt_template_type == "Преподаватель-наставник":
-            rag_prompt = (
-                f"[Контекст базы знаний]\n{context_text}\n\n"
-                f"[Вопрос студента]: {user_message}\n\n"
-                "Инструкция: Объясни концепцию простым языком, приведи аналогию из реальной жизни и покажи короткий фрагмент кода на C#."
+            system_instructions = (
+                "Роль: Ты — добрый и понятливый преподаватель университета. "
+                "Объясняй концепции через жизненные аналогии, поддерживай студента и давай развернутые пояснения.\n"
+                "ОТВЕЧАЙ СТРОГО НА РУССКОМ ЯЗЫКЕ. ЗАПРЕЩЕНО ИСПОЛЬЗОВАТЬ ИЕРОГЛИФЫ.\n\n"
+            )
+            user_prompt = (
+                f"Контекст: {context_text}\n\n"
+                f"Вопрос студента:\n{user_message}\n\n"
+                "Объясни тему подробно, просто и доступно."
             )
         else:
-            rag_prompt = (
-                f"Контекст из базы знаний:\n{context_text}\n\n"
-                f"Вопрос пользователя: {user_message}\n\n"
-                "Дай ответ, опираясь на контекст."
+            system_instructions = (
+                "Роль: Ты — технический справочник по C#. Отвечай сухо, четко и информативно.\n"
+                "ОТВЕЧАЙ СТРОГО НА РУССКОМ ЯЗЫКЕ. ЗАПРЕЩЕНО ИСПОЛЬЗОВАТЬ ИЕРОГЛИФЫ.\n\n"
             )
+            user_prompt = (
+                f"Контекст: {context_text}\n\n"
+                f"Запрос:\n{user_message}"
+            )
+            
+        full_prompt = system_instructions + user_prompt
         
-        self.histories[mode].append({"role": "user", "content": rag_prompt})
-        answer = ""
+        self.history.append({"role": "user", "content": user_message})
         
         try:
-            if mode == "local":
-                # Настройки оптимизации контекста и токенов для Ollama
-                payload = {
-                    "model": self.local_model,
-                    "prompt": rag_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": self.temperature,
-                        "num_predict": self.max_tokens,  # Ограничение максимальных токенов генерации
-                        "num_ctx": 2048                  # Оптимизация окна контекста
-                    }
+            payload = {
+                "model": self.local_model,
+                "prompt": full_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temp,
+                    "num_predict": tokens,
+                    "num_ctx": 2048
                 }
-                response = requests.post(self.ollama_url, json=payload, timeout=90)
-                if response.status_code == 200:
-                    answer = response.json().get("response", "").strip()
-                else:
-                    answer = f"Ошибка локального сервера Ollama: {response.status_code}"
+            }
+            response = requests.post(self.ollama_url, json=payload, timeout=90)
+            if response.status_code == 200:
+                answer = response.json().get("response", "").strip()
             else:
-                response = self.cloud_client.chat.completions.create(
-                    model=self.cloud_model,
-                    messages=self.histories[mode],
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                )
-                answer = response.choices[0].message.content
+                answer = f"Ошибка сервера Ollama: {response.status_code}"
                 
             duration = time.time() - start_time
-            self.histories[mode].append({"role": "assistant", "content": answer})
+            self.history.append({"role": "assistant", "content": answer})
             return answer, retrieved_docs, duration
             
         except Exception as e:
-            self.histories[mode].pop()
-            raise Exception(f"Ошибка генерации ({mode}): {e}")
+            self.history.pop()
+            raise Exception(f"Ошибка генерации: {e}")
             
-    def reset_memory(self, mode: str = None):
-        if mode:
-            self.histories[mode] = [{"role": "system", "content": "Ты — преподаватель по C# ООП."}]
-        else:
-            for m in self.histories:
-                self.histories[m] = [{"role": "system", "content": "Ты — преподаватель по C# ООП."}]
+    def reset_memory(self):
+        self.history = []
