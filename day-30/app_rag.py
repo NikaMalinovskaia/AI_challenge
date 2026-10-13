@@ -22,6 +22,12 @@ with st.sidebar:
     temperature = st.slider("Temperature", 0.0, 1.0, 0.2, 0.1)
     max_tokens = st.slider("Max Tokens (Rate Limit)", 100, 1000, 400, 50)
     
+    st.header("📝 Шаблон промпта")
+    prompt_template = st.selectbox(
+        "Выберите роль/шаблон", 
+        ["Стандартный", "Строгий код-ревьюер", "Преподаватель-наставник"]
+    )
+    
     agent.temperature = temperature
     agent.max_tokens = max_tokens
     
@@ -34,27 +40,24 @@ with st.sidebar:
 tab_chat, tab_service = st.tabs(["💬 Чат с AI-сервисом", "📊 Мониторинг и тест API нагрузки"])
 
 with tab_chat:
-    st.write("Общение с локальным сервисом через RAG-пайплайн.")
-    chat_mode = st.radio("Режим работы", ["Локальный (Ollama API)", "Облачный (для сравнения)"], horizontal=True)
-    mode_key = "local" if "Локальный" in chat_mode else "cloud"
+    st.write("Общение с локальным приватным сервисом через RAG-пайплайн.")
     
-    for msg in agent.histories[mode_key][1:]:
+    for msg in agent.history:
         if msg["role"] == "user":
-            display_text = msg["content"].split("Вопрос пользователя: ")[-1].split("\n\n")[0]
             with st.chat_message("user"):
-                st.markdown(display_text)
+                st.markdown(msg["content"])
         else:
             with st.chat_message("assistant"):
                 st.markdown(msg["content"])
                 
-    if user_input := st.chat_input("Введите запрос к сервису..."):
+    if user_input := st.chat_input("Введите запрос к сервису или вставьте код на C#..."):
         with st.chat_message("user"):
             st.markdown(user_input)
             
         with st.chat_message("assistant"):
             with st.spinner("Запрос к локальному HTTP API..."):
                 try:
-                    ans, sources, dur = agent.chat_single(user_input, mode_key, "Строгий код-ревьюер")
+                    ans, sources, dur = agent.chat_single(user_input, prompt_template)
                     st.markdown(ans)
                     with st.expander("📡 HTTP API метрики"):
                         st.write(f"⏱ **Время ответа:** {dur:.2f} сек.")
@@ -75,13 +78,21 @@ with tab_service:
         def single_request(p):
             start = time.time()
             try:
+                # Обертка запроса в позитивный языковой контекст для стресс-теста
+                formatted_prompt = (
+                    "Роль: Ассистент по программированию на C#. Язык ответа: строго русский.\n\n"
+                    f"Запрос: {p}"
+                )
                 payload = {
                     "model": selected_model,
-                    "prompt": p,
+                    "prompt": formatted_prompt,
                     "stream": False,
-                    "options": {"temperature": temperature, "num_predict": max_tokens}
+                    "options": {
+                        "temperature": temperature, 
+                        "num_predict": max_tokens
+                    }
                 }
-                res = requests.post(server_url, json=payload, timeout=30)
+                res = requests.post(server_url, json=payload, timeout=90)
                 dur = time.time() - start
                 if res.status_code == 200:
                     return {"status": "success", "duration": dur, "text": res.json().get("response", "").strip()}
