@@ -13,4 +13,4 @@ def get_user_data(user_id):
     
     conn.close()
     return result
-#тест тест 
+# Test PR changes for AI review
