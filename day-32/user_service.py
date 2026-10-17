@@ -13,4 +13,5 @@ def get_user_data(user_id):
     
     conn.close()
     return result
-# Test PR changes for AI review
+# Testing AI code review pipeline
+print("Hello, AI Review!")
