@@ -19,6 +19,7 @@ jobs:
           python-version: '3.10'
 
       - name: Run AI Review Pipeline
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          cd day-32
-          python3 ai_review_pipeline.py
+          python3 day-32/ai_review_pipeline.py
