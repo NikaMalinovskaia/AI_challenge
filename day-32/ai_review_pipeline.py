@@ -87,7 +87,7 @@ def main():
     review_result = generate_ai_review(diff)
     
     print("\n" + "="*50)
-    print("🤖 РЕЗУЛЬТАТ AI CODE REVIEW:")
+    print("🤖 РЕЗУЛЬТАТ AI CODE REVIEW пупупу:")
     print("="*50 + "\n")
     print(review_result)
     print("\n" + "="*50)
