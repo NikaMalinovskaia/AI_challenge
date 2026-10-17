@@ -22,4 +22,4 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          python3 day-32/ai_review_pipeline.py
+          python3 ai_review_pipeline.py
