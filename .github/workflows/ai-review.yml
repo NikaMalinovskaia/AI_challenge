@@ -27,5 +27,7 @@ jobs:
       - name: Run AI Review Pipeline
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: "https://llm.effective.land/v1"
+          OPENAI_MODEL: "glm-5.3-flash"
         run: |
           python3 ai_review_pipeline.py
