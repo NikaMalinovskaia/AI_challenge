@@ -1,4 +1,3 @@
-# user_service.py
 import sqlite3
 
 def get_user_data(user_id):
