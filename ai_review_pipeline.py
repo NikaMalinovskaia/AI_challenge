@@ -13,7 +13,7 @@ def get_git_diff():
 def generate_ai_review(diff_text):
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url="https://llm.effective.land/v1")
     res = client.chat.completions.create(
-        model="glm-4-flash",
+        model="glm-5.3-flash",
         messages=[
             {"role": "system", "content": "Ты — старший архитектор. Проведи AI Code Review для git diff на русском языке."},
             {"role": "user", "content": f"Вот git diff:\n\n```diff\n{diff_text}\n```"}
