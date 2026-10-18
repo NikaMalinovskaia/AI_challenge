@@ -26,7 +26,7 @@ def generate_ai_review(diff_text):
         print("Ошибка: OPENAI_API_KEY не задан.")
         sys.exit(1)
 
-    # Используем корпоративный base_url Effective LLM
+    # Используем прокси Effective LLM
     client = OpenAI(
         api_key=api_key,
         base_url="https://llm.effective.land/v1"
@@ -42,7 +42,7 @@ def generate_ai_review(diff_text):
 """
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="glm-5.3-flash",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Вот git diff:\n\n```diff\n{diff_text}\n```"},
