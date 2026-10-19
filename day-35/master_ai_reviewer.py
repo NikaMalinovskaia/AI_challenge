@@ -1,6 +1,8 @@
 import os
 import sys
 import glob
+import subprocess
+from urllib.parse import urlparse
 from openai import OpenAI
 
 # Инициализация локального клиента Ollama
@@ -9,31 +11,95 @@ client = OpenAI(
     api_key="ollama"
 )
 
+# ANSI-цвета для красивого вывода в терминале
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+
+def print_colored(text, color=Colors.BLUE):
+    print(f"{color}{text}{Colors.ENDC}")
+
 def load_criteria():
     """Загрузка методички с критериями оценки из criteria.md (RAG)"""
     criteria_path = "criteria.md"
     if os.path.exists(criteria_path):
-        print(f"📚 Загрузка базы знаний (методички): {criteria_path}...")
+        print_colored(f"📚 Загрузка базы знаний (методички): {criteria_path}...", Colors.GREEN)
         try:
             with open(criteria_path, 'r', encoding='utf-8') as f:
                 return f.read()
         except Exception as e:
-            print(f"⚠️ Не удалось прочитать {criteria_path}: {e}")
+            print_colored(f"⚠️ Не удалось прочитать {criteria_path}: {e}", Colors.WARNING)
     return "Проверь инкапсуляцию, именование по стандартам C# и логику работы."
 
+def prepare_target(target_arg):
+    """
+    Динамически разбирает любую ссылку GitHub (с произвольными именами репозиториев и папок) 
+    или принимает локальный путь. Возвращает кортеж: (путь к папке, имя для отчёта).
+    """
+    if "github.com" in target_arg:
+        print_colored(f"🌐 Анализируем GitHub ссылку: {target_arg}", Colors.HEADER)
+        
+        parsed_url = urlparse(target_arg)
+        path_segments = [seg for seg in parsed_url.path.split("/") if seg]
+        
+        if len(path_segments) < 2:
+            print_colored("❌ Некорректная ссылка на GitHub. Укажите полный путь к репозиторию или папке.", Colors.FAIL)
+            sys.exit(1)
+            
+        owner = path_segments[0]
+        repo_name = path_segments[1].replace(".git", "")
+        
+        base_repo_url = f"https://github.com/{owner}/{repo_name}.git"
+        local_dir = f"temp_repo_{repo_name}"
+        
+        sub_folder_parts = []
+        if "tree" in path_segments:
+            tree_index = path_segments.index("tree")
+            if len(path_segments) > tree_index + 2:
+                sub_folder_parts = path_segments[tree_index + 2:]
+
+        if os.path.exists(local_dir):
+            print_colored(f"📁 Папка {local_dir} уже существует. Обновляем репозиторий (git pull)...", Colors.GREEN)
+            try:
+                subprocess.run(["git", "-C", local_dir, "pull"], check=True)
+            except Exception as e:
+                print_colored(f"⚠️ Не удалось обновить git pull: {e}", Colors.WARNING)
+        else:
+            print_colored(f"📦 Клонируем репозиторий {base_repo_url}...", Colors.GREEN)
+            try:
+                subprocess.run(["git", "clone", base_repo_url, local_dir], check=True)
+            except Exception as e:
+                print_colored(f"❌ Ошибка при клонировании репозитория: {e}", Colors.FAIL)
+                sys.exit(1)
+                
+        final_path = os.path.join(local_dir, *sub_folder_parts) if sub_folder_parts else local_dir
+        
+        # Формируем уникальное имя отчёта на базе репозитория и подпапки (если есть)
+        sub_suffix = f"_{'_'.join(sub_folder_parts)}" if sub_folder_parts else ""
+        report_filename = f"Review_Report_{repo_name}{sub_suffix}.md"
+        
+        return final_path, report_filename
+    else:
+        # Для локальных папок
+        local_path = target_arg
+        folder_base_name = os.path.basename(os.path.normpath(local_path)) or "local_project"
+        report_filename = f"Review_Report_{folder_base_name}.md"
+        return local_path, report_filename
+
 def scan_target_directory(target_path):
-    """Сканирование всей папки/репозитория: сбор всех .cs файлов рекурсивно"""
     if not os.path.exists(target_path):
-        print(f"❌ Ошибка: Путь не существует -> {target_path}")
+        print_colored(f"❌ Ошибка: Путь не существует -> {target_path}", Colors.FAIL)
         return []
     
-    print(f"🔍 Рекурсивное сканирование всей папки: {target_path}...")
-    
-    # Ищем все файлы .cs во всех вложенных папках
+    print_colored(f"🔍 Рекурсивное сканирование целевой папки: {target_path}...", Colors.GREEN)
     search_pattern = os.path.join(target_path, "**", "*.cs")
     cs_files = glob.glob(search_pattern, recursive=True)
     
-    # Если файлов .cs нет, собираем общие текстовые исходники
     if not cs_files:
         search_pattern = os.path.join(target_path, "**", "*.*")
         cs_files = [f for f in glob.glob(search_pattern, recursive=True) if not os.path.isdir(f)]
@@ -41,25 +107,23 @@ def scan_target_directory(target_path):
     return cs_files
 
 def run_ai_review(file_paths, criteria_text):
-    """Сбор содержимого ВСЕХ файлов папки и отправка на анализ в Ollama"""
     code_contents = ""
-    print(f"\n📂 Всего найдено файлов для анализа в папке: {len(file_paths)}")
+    print_colored(f"\n📂 Найдено файлов для анализа: {len(file_paths)}", Colors.HEADER)
     
     for fp in file_paths:
-        # Пропускаем служебные папки и сборочные директории
         if any(skip in fp for skip in ['.git', 'bin', 'obj', '__pycache__', '.vs']):
             continue
             
-        print(f"  📖 Чтение файла: {fp}")
+        print_colored(f"  📖 Чтение файла: {fp}", Colors.BLUE)
         try:
             with open(fp, 'r', encoding='utf-8') as f:
                 code_contents += f"\n\n================ FILE: {fp} ================\n{f.read()}\n"
         except Exception as e:
-            print(f"  ⚠️ Не удалось прочитать файл {fp}: {e}")
+            print_colored(f"  ⚠️ Не удалось прочитать файл {fp}: {e}", Colors.WARNING)
 
     prompt = f"""
 Ты — строгий преподаватель по программированию на C#. 
-Проверь проект студента (все файлы в папке) на соответствие требованиям из методички:
+Проверь проект студента на соответствие требованиям из методички:
 
 === МЕТОДИЧКА И ЗАДАНИЯ КУРСА (RAG) ===
 {criteria_text}
@@ -70,12 +134,12 @@ def run_ai_review(file_paths, criteria_text):
 
 Сформируй подробный отчёт в формате Markdown:
 1. **Общая оценка проекта**: (от 1 до 5) и статус (зачтено / отправлено на доработку).
-2. **Анализ по задачнику**: Проверь, какие классы и задачи из методички реализованы (например, Animal, Figure, ClassRoom, DocumentWorker, банкомат и т.д.) и есть ли ошибки.
+2. **Анализ по задачнику**: Проверь, какие классы и задачи из методички реализованы (Animal, Figure, ClassRoom, DocumentWorker и т.д.) и есть ли ошибки.
 3. **Рекомендации**: Конкретные замечания по структуре проекта.
 4. **Примеры исправлений**: Исправленный код для ключевых проблемных мест.
 """
 
-    print("\n🤖 Отправка всей кодовой базы модели qwen2.5 через Ollama...")
+    print_colored("\n🤖 Отправка кодовой базы модели qwen2.5 через Ollama...", Colors.HEADER)
     response = client.chat.completions.create(
         model="qwen2.5",
         messages=[
@@ -86,20 +150,26 @@ def run_ai_review(file_paths, criteria_text):
     return response.choices[0].message.content
 
 if __name__ == "__main__":
-    target_directory = sys.argv[1] if len(sys.argv) > 1 else "student_repo_sample"
+    if len(sys.argv) < 2:
+        print_colored("❌ Укажите путь к папке или ссылку на GitHub в качестве аргумента!", Colors.FAIL)
+        print_colored("Пример: python3 master_ai_reviewer.py https://github.com/NikaMalinovskaia/AI_challenge/tree/main/test", Colors.WARNING)
+        sys.exit(1)
+        
+    raw_target = sys.argv[1]
+    print_colored(f"🚀 Запуск Master AI Reviewer для цели: {raw_target}", Colors.HEADER)
     
-    print(f"🚀 Запуск Master AI Reviewer для папки: {target_directory}")
+    # Динамически получаем путь и уникальное имя отчёта
+    target_directory, output_report = prepare_target(raw_target)
     
     criteria = load_criteria()
     files = scan_target_directory(target_directory)
     
     if not files:
-        print("❌ В указанной папке не найдено файлов для анализа!")
+        print_colored("❌ В указанной директории не найдено файлов для анализа!", Colors.FAIL)
     else:
         report = run_ai_review(files, criteria)
         
-        output_report = "PR_AI_Review_Report.md"
         with open(output_report, "w", encoding="utf-8") as out:
             out.write(report)
             
-        print(f"\n✨ Успешно! Полный отчёт по всей папке сохранен в файл: {output_report}")
+        print_colored(f"\n✨ Успешно! Уникальный отчёт сохранен в файл: {output_report}", Colors.GREEN)
