@@ -1,0 +1,14 @@
+{
+  "user_123": {
+    "name": "Ника",
+    "subscription": "Pro",
+    "active_tickets": [
+      {
+        "ticket_id": "TICK-991",
+        "issue": "Не работает авторизация через корпоративную почту",
+        "status": "in_progress",
+        "created_at": "2026-10-18"
+      }
+    ]
+  }
+}

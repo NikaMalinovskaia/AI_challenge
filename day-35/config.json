@@ -1,0 +1,7 @@
+{
+  "ollama_base_url": "http://localhost:11434/v1",
+  "ollama_model": "qwen2.5",
+  "api_key": "ollama",
+  "ignored_directories": [".git", "bin", "obj", "__pycache__", ".vs"],
+  "criteria_file": "criteria.md"
+}
