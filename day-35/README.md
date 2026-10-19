@@ -18,23 +18,24 @@ AI выступает в роли **экспертного преподават�
 ---
 
 ## 🛠 Архитектура пайплайна
+```text
 [GitHub URL / Локальный путь]
-│
-▼
-prepare_target() ──► Клонирование / обновление через git clone (без API-токенов)
-│
-▼
-scan_target_directory() ──► Рекурсивное обнаружение всех .cs файлов
-│
-▼
-load_criteria() ──► Чтение критериев курса из criteria.md (RAG)
-│
-▼
-run_ai_review() ──► Локальная LLM (qwen2.5 / Ollama)
-│
-▼
-Output ──► Уникальный отчёт Review_Report_<имя_репозитория>.md
-
+         │
+         ▼
+ 1. prepare_target() ──► Клонирование / обновление через git clone (без API-токенов)
+         │
+         ▼
+ 2. scan_target_directory() ──► Рекурсивное обнаружение всех .cs файлов
+         │
+         ▼
+ 3. load_criteria() ──► Чтение критериев курса из criteria.md (RAG)
+         │
+         ▼
+ 4. run_ai_review() ──► Локальная LLM (qwen2.5 / Ollama)
+         │
+         ▼
+ 5. Output ──► Уникальный отчёт Review_Report_<имя_репозитория>.md
+```
 ---
 
 ## 🚀 Особенности и преимущества
